@@ -156,6 +156,11 @@ android {
             cmake {
                 version '3.22.1'
                 arguments '-DANDROID_STL=c++_static', '-DANDROID_PLATFORM=android-23' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+                // Only enabled on CI runners where ccache is installed.
+                // CMake's compiler launchers cover this module and its C/C++ subtargets.
+                if (System.getenv('CCACHE_DIR')) {
+                    arguments '-DCMAKE_C_COMPILER_LAUNCHER=ccache', '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache'
+                }
                 targets 'tmessages.49', 'twidget'
             }
         }

@@ -21,7 +21,8 @@ permissions:
 
 concurrency:
   group: telegram-clean-apk-${{ github.ref }}
-  cancel-in-progress: true
+  # Let a running build finish so its APK isn't lost when a newer commit lands.
+  cancel-in-progress: false
 
 jobs:
   build-debug-apk:
@@ -32,6 +33,13 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: '2'
       GRADLE_OPTS: '-Dfile.encoding=UTF-8'
       JAVA_TOOL_OPTIONS: '-Dfile.encoding=UTF-8'
+      # Persist compiled C/C++ objects between fresh GitHub-hosted runners.
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: '2G'
+      CCACHE_COMPRESS: 'true'
+      CCACHE_COMPRESSLEVEL: '6'
+      CCACHE_COMPILERCHECK: 'content'
 
     steps:
       - name: Free disk space for Telegram native compilation
@@ -90,13 +98,52 @@ jobs:
         with:
           cache-cleanup: on-success
 
+      - name: Install ccache for Android NDK C/C++
+        id: setup_ccache
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ccache
+          mkdir -p "$CCACHE_DIR"
+          ccache --version
+          command -v ccache
+
+      - name: Restore previous C/C++ compilation cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: telegram-ndk-ccache-v1-${{ runner.os }}-ndk27.2.12479018-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            telegram-ndk-ccache-v1-${{ runner.os }}-ndk27.2.12479018-
+
+      - name: Reset ccache statistics
+        shell: bash
+        run: |
+          ccache --zero-stats
+          ccache --show-stats
+
       - name: Compile original Telegram Standalone debug APK
+        id: compile_apk
         shell: bash
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon --stacktrace --max-workers=2 --no-parallel \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
             :TMessagesProj_AppStandalone:assembleAfatDebug
+
+      - name: Report C/C++ compiler cache hits and misses
+        if: ${{ always() && steps.setup_ccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          ccache --show-stats
+          du -sh "$CCACHE_DIR" || true
+
+      - name: Save C/C++ compiler cache for the next build
+        if: ${{ always() && steps.setup_ccache.outcome == 'success' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: telegram-ndk-ccache-v1-${{ runner.os }}-ndk27.2.12479018-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Validate and collect APK
         shell: bash
