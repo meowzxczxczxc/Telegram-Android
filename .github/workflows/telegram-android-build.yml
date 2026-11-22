@@ -62,8 +62,20 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK command line
-        uses: android-actions/setup-android@v3
+      - name: Install pinned Android Command-line Tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/android-cli" "$sdk_root/cmdline-tools"
+          curl -fL --retry 3 "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip" -o "$RUNNER_TEMP/android-cli.zip"
+          unzip -q "$RUNNER_TEMP/android-cli.zip" -d "$RUNNER_TEMP/android-cli"
+          rm -rf "$sdk_root/cmdline-tools/ci"
+          mv "$RUNNER_TEMP/android-cli/cmdline-tools" "$sdk_root/cmdline-tools/ci"
+          echo "$sdk_root/cmdline-tools/ci/bin" >> "$GITHUB_PATH"
+          echo "$sdk_root/platform-tools" >> "$GITHUB_PATH"
+          "$sdk_root/cmdline-tools/ci/bin/sdkmanager" --version
 
       - name: Install matching SDK, NDK and CMake
         shell: bash
