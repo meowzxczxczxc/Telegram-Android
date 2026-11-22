@@ -1676,7 +1676,7 @@ public class Theme {
             if (isDark != UNKNOWN) {
                 return isDark == DARK;
             }
-            if ("Dark Blue".equals(name) || "Night".equals(name)) {
+            if ("Dark Blue".equals(name) || "Night".equals(name) || "Monet Black".equals(name)) {
                 isDark = DARK;
             } else if ("Blue".equals(name) || "Arctic Blue".equals(name) || "Day".equals(name)) {
                 isDark = LIGHT;
@@ -4098,6 +4098,17 @@ public class Theme {
         themes.add(themeInfo);
         themesDict.put("Night", themeInfo);
 
+        // Built-in user-supplied Monet Black theme with Android Material You accents.
+        themeInfo = new ThemeInfo();
+        themeInfo.name = "Monet Black";
+        themeInfo.assetName = "monet_black.attheme";
+        themeInfo.previewBackgroundColor = 0xff000000;
+        themeInfo.previewInColor = 0xff19191f;
+        themeInfo.previewOutColor = 0xffb4c5ff;
+        themeInfo.sortIndex = 6;
+        themes.add(themeInfo);
+        themesDict.put("Monet Black", themeInfo);
+
         String themesString = themeConfig.getString("themes2", null);
 
         int remoteVersion = themeConfig.getInt("remote_version", 0);
@@ -4149,7 +4160,10 @@ public class Theme {
             final ThemeInfo themeDarkBlue = themesDict.get("Dark Blue");
 
             String theme = preferences.getString("theme", null);
-            if ("Default".equals(theme)) {
+            if (theme == null) {
+                // Only first install gets the bundled black theme.
+                applyingTheme = themesDict.get("Monet Black");
+            } else if ("Default".equals(theme)) {
                 applyingTheme = themesDict.get("Blue");
                 applyingTheme.currentAccentId = DEFALT_THEME_ACCENT_ID;
             } else if ("Dark".equals(theme)) {
@@ -4165,7 +4179,9 @@ public class Theme {
             }
 
             theme = preferences.getString("nighttheme", null);
-            if ("Default".equals(theme)) {
+            if (theme == null) {
+                currentNightTheme = themesDict.get("Monet Black");
+            } else if ("Default".equals(theme)) {
                 applyingTheme = themesDict.get("Blue");
                 applyingTheme.currentAccentId = DEFALT_THEME_ACCENT_ID;
             } else if ("Dark".equals(theme)) {
@@ -4337,7 +4353,8 @@ public class Theme {
                 oldEditorNew.commit();
             }
 
-            selectedAutoNightType = preferences.getInt("selectedAutoNightType", Build.VERSION.SDK_INT >= 29 ? AUTO_NIGHT_TYPE_SYSTEM : AUTO_NIGHT_TYPE_NONE);
+            // Respect explicit user settings, but do not flip a fresh install to light mode.
+            selectedAutoNightType = preferences.getInt("selectedAutoNightType", AUTO_NIGHT_TYPE_NONE);
             autoNightScheduleByLocation = preferences.getBoolean("autoNightScheduleByLocation", false);
             autoNightBrighnessThreshold = preferences.getFloat("autoNightBrighnessThreshold", 0.25f);
             autoNightDayStartTime = preferences.getInt("autoNightDayStartTime", 22 * 60);
@@ -7661,6 +7678,7 @@ public class Theme {
         try {
             byte[] bytes = new byte[1024];
             int currentPosition = 0;
+            final boolean isMonetBlackAsset = "monet_black.attheme".equals(assetName);
             if (assetName != null) {
                 file = getAssetFile(assetName);
             }
@@ -7689,7 +7707,9 @@ public class Theme {
                                 String key = line.substring(0, idx);
                                 String param = line.substring(idx + 1);
                                 int value;
-                                if (param.length() > 0 && param.charAt(0) == '#') {
+                                if (isMonetBlackAsset && MonetThemeColors.isReference(param)) {
+                                    value = MonetThemeColors.resolve(param);
+                                } else if (param.length() > 0 && param.charAt(0) == '#') {
                                     try {
                                         value = Color.parseColor(param);
                                     } catch (Exception ignore) {
