@@ -1,0 +1,113 @@
+name: Telegram Android clean build (APK)
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/telegram-android-build.yml'
+      - 'TMessagesProj/**'
+      - 'TMessagesProj_AppStandalone/**'
+      - 'TMessagesProj_Modules/**'
+      - 'TMessagesProj_App/**'
+      - 'buildSrc/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-clean-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug-apk:
+    name: Build untouched upstream Android APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+      GRADLE_OPTS: '-Dfile.encoding=UTF-8'
+      JAVA_TOOL_OPTIONS: '-Dfile.encoding=UTF-8'
+
+    steps:
+      - name: Free disk space for Telegram native compilation
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/share/powershell /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/lib/android/sdk/system-images
+          docker system prune -af || true
+          df -h
+
+      - name: Checkout full Telegram source with recursive submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify source baseline
+        shell: bash
+        run: |
+          echo "Telegram HEAD: $(git rev-parse HEAD)"
+          git status --porcelain
+          git submodule status --recursive | head -100
+
+      - name: Java 17 (Android Gradle Plugin 8.13)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK command line
+        uses: android-actions/setup-android@v3
+
+      - name: Install matching SDK, NDK and CMake
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "ndk;27.2.12479018" "cmake;3.22.1"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          df -h
+
+      - name: Cache Gradle distributions and dependencies
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Compile original Telegram Standalone debug APK
+        shell: bash
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --stacktrace --max-workers=2 --no-parallel \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
+            :TMessagesProj_AppStandalone:assembleAfatDebug
+
+      - name: Validate and collect APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find TMessagesProj_AppStandalone/build/outputs/apk -type f -name '*.apk' -print
+          apk=$(find TMessagesProj_AppStandalone/build/outputs/apk -type f -name '*.apk' | head -1)
+          test -n "$apk" && test -s "$apk"
+          cp "$apk" dist/Telegram-Android-clean-debug.apk
+          unzip -tq dist/Telegram-Android-clean-debug.apk >/dev/null
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify dist/Telegram-Android-clean-debug.apk
+          sha256sum dist/*.apk
+          du -h dist/*.apk
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-clean-debug-apk-${{ github.run_number }}
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+# Test builds retain Telegram's upstream dummy Firebase, API and signing configuration.
+# NOT suitable for distributing as a working fork. Before distribution, use your
+# own Telegram API credentials, Firebase app, application ID, brand and signing key.
